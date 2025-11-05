@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stick Figure Game: Levels & Power-Ups</title>
+<style>
+  body { margin:0; overflow:hidden; background:#222; font-family:sans-serif; color:white;}
+  canvas { display:block; background:#333;}
+  #hud { position:absolute; top:10px; left:10px; font-size:20px;}
+</style>
+</head>
+<body>
+<div id="hud">Score: 0 | Health: 100 | Level: 1</div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let score = 0;
+let level = 1;
+
+// Player
+const player = {
+    x: 100,
+    y: canvas.height - 150,
+    width: 20,
+    height: 50,
+    color: 'white',
+    velocityY: 0,
+    speed: 5,
+    jumping: false,
+    facing: 1,
+    attackCooldown: 0,
+    health: 100,
+    punchActive: false,
+    punchTimer: 0
+};
+
+// Gravity
+const gravity = 0.7;
+
+// Keys
+const keys = {};
+
+// Platforms
+const platforms = [
+    {x:0, y: canvas.height - 100, width: canvas.width, height: 20},
+    {x:400, y: canvas.height - 200, width: 200, height: 20},
+    {x:700, y: canvas.height - 300, width: 200, height: 20}
+];
+
+// Projectiles
+const projectiles = [];
+const enemyProjectiles = [];
+
+// Enemies
+let enemies = [];
+function spawnEnemies(wave) {
+    enemies = [];
+    for(let i=0;i<wave;i++){
+        enemies.push({
+            x: 400 + i*200,
+            y: canvas.height - 150 - (i%2)*200,
+            width: 20,
+            height: 50,
+            color: 'red',
+            direction: 1,
+            speed: 2 + level*0.5,
+            health: 50 + level*10,
+            attackCooldown: 0
+        });
+    }
+}
+
+// Power-ups
+const powerUps = [];
+
+// Event listeners
+document.addEventListener('keydown', (e) => keys[e.code] = true);
+document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+// Player attack (punch & projectile)
+function attack() {
+    if(player.attackCooldown <= 0) {
+        // Punch
+        player.punchActive = true;
+        player.punchTimer = 10;
+        // Shoot projectile
+        projectiles.push({
+            x: player.x + player.width / 2,
+            y: player.y + 25,
+            radius: 5,
+            speed: 10,
+            direction: player.facing
+        });
+        player.attackCooldown = 20;
+    }
+}
+
+// Enemy attack
+function enemyAttack(enemy) {
+    if(enemy.attackCooldown <= 0) {
+        enemyProjectiles.push({
+            x: enemy.x + enemy.width/2,
+            y: enemy.y + 25,
+            radius: 5,
+            speed: 7,
+            direction: (player.x > enemy.x ? 1 : -1)
+        });
+        enemy.attackCooldown = 100;
+    }
+}
+
+// Spawn a random power-up
+function spawnPowerUp() {
+    powerUps.push({
+        x: Math.random() * (canvas.width - 30),
+        y: Math.random() * (canvas.height - 200),
+        width: 20,
+        height: 20,
+        type: Math.random() < 0.5 ? 'health' : 'attack',
+        color: 'cyan'
+    });
+}
+
+// Game Over
+function gameOver() {
+    ctx.fillStyle = 'white';
+    ctx.font = '50px sans-serif';
+    ctx.fillText('GAME OVER', canvas.width/2 - 150, canvas.height/2);
+}
+
+// Update loop
+function update() {
+    if(player.health <= 0) { gameOver(); return; }
+
+    // Player movement
+    if(keys['ArrowLeft']) { player.x -= player.speed; player.facing = -1; }
+    if(keys['ArrowRight']) { player.x += player.speed; player.facing = 1; }
+    if(keys['ArrowUp'] && !player.jumping) { player.velocityY = -15; player.jumping = true; }
+
+    // Gravity
+    player.velocityY += gravity;
+    player.y += player.velocityY;
+
+    // Platform collision
+    platforms.forEach(platform => {
+        if(player.x < platform.x + platform.width &&
+           player.x + player.width > platform.x &&
+           player.y + player.height > platform.y &&
+           player.y + player.height < platform.y + platform.height + 10 &&
+           player.velocityY >= 0) {
+            player.y = platform.y - player.height;
+            player.velocityY = 0;
+            player.jumping = false;
+        }
+    });
+
+    // Boundaries
+    if(player.y + player.height > canvas.height) { player.y = canvas.height - player.height; player.velocityY = 0; player.jumping = false; }
+
+    // Attack
+    if(keys['Space']) attack();
+    if(player.attackCooldown > 0) player.attackCooldown--;
+    if(player.punchActive) { player.punchTimer--; if(player.punchTimer <=0) player.punchActive=false; }
+
+    // Update projectiles
+    projectiles.forEach((p, index) => {
+        p.x += p.speed * p.direction;
+        if(p.x < 0 || p.x > canvas.width) projectiles.splice(index,1);
+
+        enemies.forEach((enemy,eIndex) => {
+            if(p.x > enemy.x && p.x < enemy.x + enemy.width && p.y > enemy.y && p.y < enemy.y + enemy.height){
+                enemy.health -= 25;
+                projectiles.splice(index,1);
+                if(enemy.health <= 0) {
+                    enemies.splice(eIndex,1);
+                    score += 100;
+                    document.getElementById('hud').innerText = `Score: ${score} | Health: ${player.health} | Level: ${level}`;
+                }
+            }
+        });
+    });
+
+    // Update enemy projectiles
+    enemyProjectiles.forEach((p,index) => {
+        p.x += p.speed * p.direction;
+        if(p.x < 0 || p.x > canvas.width) enemyProjectiles.splice(index,1);
+        if(p.x > player.x && p.x < player.x + player.width && p.y > player.y && p.y < player.y + player.height){
+            player.health -= 10;
+            enemyProjectiles.splice(index,1);
+            document.getElementById('hud').innerText = `Score: ${score} | Health: ${player.health} | Level: ${level}`;
+        }
+    });
+
+    // Move enemies & attack
+    enemies.forEach(enemy => {
+        enemy.x += enemy.speed * enemy.direction;
+        if(enemy.x < 0 || enemy.x + enemy.width > canvas.width) enemy.direction *= -1;
+        enemy.attackCooldown--;
+        enemyAttack(enemy);
+    });
+
+    // Power-up collection
+    powerUps.forEach((pu, i) => {
+        if(player.x < pu.x + pu.width && player.x + player.width > pu.x &&
+           player.y < pu.y + pu.height && player.y + player.height > pu.y){
+            if(pu.type==='health') player.health = Math.min(player.health+30, 100);
+            else if(pu.type==='attack') player.attackCooldown = 0; // reset cooldown
+            powerUps.splice(i,1);
+        }
+    });
+
+    // Check level completion
+    if(enemies.length===0){
+        level++;
+        spawnEnemies(level + 1);
+        spawnPowerUp();
+        document.getElementById('hud').innerText = `Score: ${score} | Health: ${player.health} | Level: ${level}`;
+    }
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+// Draw everything
+function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // Player
+    drawStick(player);
+    // Health bar
+    ctx.fillStyle = 'red';
+    ctx.fillRect(player.x, player.y-10, player.width,5);
+    ctx.fillStyle = 'green';
+    ctx.fillRect(player.x, player.y-10, player.width*(player.health/100),5);
+
+    // Enemies
+    enemies.forEach(enemy => {
+        drawStick(enemy);
+        ctx.fillStyle = 'red';
+        ctx.fillRect(enemy.x, enemy.y-10, enemy.width,5);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(enemy.x, enemy.y-10, enemy.width*(enemy.health/(50+level*10)),5);
+    });
+
+    // Platforms
+    ctx.fillStyle = 'green';
+    platforms.forEach(p => ctx.fillRect(p.x,p.y,p.width,p.height));
+
+    // Projectiles
+    ctx.fillStyle = 'yellow';
+    projectiles.forEach(p=>{ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill();});
+
+    // Enemy projectiles
+    ctx.fillStyle = 'orange';
+    enemyProjectiles.forEach(p=>{ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill();});
+
+    // Power-ups
+    powerUps.forEach(pu=>{
+        ctx.fillStyle = pu.color;
+        ctx.fillRect(pu.x, pu.y, pu.width, pu.height);
+    });
+}
+
+// Stick figure drawing
+function drawStick(character){
+    ctx.strokeStyle = character.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(character.x+character.width/2, character.y+10,10,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(character.x+character.width/2,character.y+20);
+    ctx.lineTo(character.x+character.width/2, character.y+40); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(character.x+character.width/2-10,character.y+25);
+    ctx.lineTo(character.x+character.width/2+10,character.y+25); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(character.x+character.width/2,character.y+40);
+    ctx.lineTo(character.x+character.width/2-10,character.y+50);
+    ctx.moveTo(character.x+character.width/2,character.y+40);
+    ctx.lineTo(character.x+character.width/2+10,character.y+50);
+    ctx.stroke();
+}
+
+spawnEnemies(level + 1);
+update();
+</script>
+</body>
+</html>
